@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+<meta name="apple-mobile-web-app-title" content="Prières"/>
+<title>Mes Prières</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#FAFAF9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:480px;margin:0 auto;min-height:100vh;}
+button{cursor:pointer;border:none;background:none;font-family:inherit;}
+button:active{opacity:0.7;}
+input{font-family:inherit;}
+::-webkit-scrollbar{display:none;}
+svg{display:block;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+
+// ── CONSTANTS ──────────────────────────────────────────────────────────────────
+const COLORS = {
+  accomplie:'#16a34a', retardee:'#d97706', manquee:'#dc2626',
+  gray:'#6b7280', bg:'#FAFAF9', surface:'#FFFFFF',
+  surfaceElevated:'#F5F5F4', textPrimary:'#1C1917',
+  textSecondary:'#57534E', textMuted:'#A8A29E',
+  gold:'#D4AF37', sand:'#E7E5E4', border:'#E7E5E4',
+};
+const JOUMUA_YELLOW = '#EAB308';
+const STATUS_COLOR = {accomplie:COLORS.accomplie, retardee:COLORS.retardee, manquee:COLORS.manquee};
+
+// Joumou'a helpers
+function isFriday(d){ return d.getDay()===5; }
+function getJoumuaColor(log){
+  if(!log) return null;
+  if(log.status==='manquee') return COLORS.manquee;
+  if(log.status==='retardee') return COLORS.retardee;
+  if(log.status==='accomplie') return log.subcategory==='À la mosquée' ? COLORS.accomplie : JOUMUA_YELLOW;
+  return null;
+}
+function getJoumuaStatus(log){
+  if(!log) return null;
+  if(log.status==='manquee') return 'manquee';
+  if(log.status==='retardee') return 'retardee';
+  if(log.status==='accomplie') return log.subcategory==='À la mosquée' ? 'mosquee' : 'hors_mosquee';
+  return null;
+}
+function getFridaysOfYear(year){
+  const fridays=[];
+  const d=new Date(year,0,1);
+  while(d.getDay()!==5) d.setDate(d.getDate()+1);
+  while(d.getFullYear()===year){ fridays.push(new Date(d)); d.setDate(d.getDate()+7); }
+  return fridays;
+}
+function getFridaysOfMonth(year,month){
+  // returns up to 5 fridays for that month (null if none)
+  const result=[null,null,null,null,null];
+  const d=new Date(year,month,1);
+  while(d.getDay()!==5) d.setDate(d.getDate()+1);
+  let i=0;
+  while(d.getMonth()===month && i<5){ result[i]=new Date(d); i++; d.setDate(d.getDate()+7); }
+  return result;
+}
+const PRAYERS = ['Fajr','Dhuhr','Asr','Maghrib','Isha'];
+const STATUS_LABEL = {accomplie:'Accomplie', retardee:'Retardée', manquee:'Manquée'};
+const SUBCATEGORIES = {
+  accomplie:['Seul','Avec enfant','Avec épouse','À la mosquée','En groupe'],
+  retardee:['Endormi','Au travail','À la maison','À l\'extérieur'],
+  manquee:['Fainéantise','Fatigué','Oublié'],
+};
+const SUBCATEGORY_QUESTION = {accomplie:'Avec qui ?', retardee:'Où étais-tu ?', manquee:'Pourquoi ?'};
+const FRENCH_DAYS = ['Dimanche','Lundi','Mardi','Mercredi','Jeudi','Vendredi','Samedi'];
+const FRENCH_MONTHS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+const FRENCH_MONTHS_CAP = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
+const DAY_LABELS = ['L','M','M','J','V','S','D'];
+const PRAYER_INITIALS = {Fajr:'F',Dhuhr:'D',Asr:'A',Maghrib:'M',Isha:'I'};
+
+// ── HELPERS ────────────────────────────────────────────────────────────────────
+function dateKey(d){
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function todayDate(){const t=new Date();t.setHours(0,0,0,0);return t;}
+function addDays(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}
+function startOfWeek(d){const x=new Date(d);x.setHours(0,0,0,0);const dow=x.getDay();const diff=dow===0?-6:1-dow;x.setDate(x.getDate()+diff);return x;}
+function isSameDay(a,b){return a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();}
+function formatFrenchDate(d){return `${FRENCH_DAYS[d.getDay()]} ${d.getDate()} ${FRENCH_MONTHS[d.getMonth()]}`;}
+function relativeLabel(d){
+  const today=todayDate();
+  const diff=Math.round((d-today)/(1000*60*60*24));
+  if(diff===0)return "Aujourd'hui";
+  if(diff===-1)return 'Hier';
+  if(diff===1)return 'Demain';
+  if(diff<0)return `Il y a ${Math.abs(diff)} jours`;
+  return `Dans ${diff} jours`;
+}
+function pct(v,base){return base===0?0:Math.round(v/base*100);}
+function countInRange(logs,start,end,prayers){
+  const pp=prayers||PRAYERS;
+  const out={accomplie:0,retardee:0,manquee:0,total:0,expected:0};
+  const cur=new Date(start);cur.setHours(0,0,0,0);
+  const stop=new Date(end);stop.setHours(0,0,0,0);
+  while(cur<=stop){
+    const k=dateKey(cur);
+    const day=logs[k]||{};
+    pp.forEach(p=>{
+      out.expected++;
+      const l=day[p];
+      if(l){out.total++;out[l.status]++;}
+    });
+    cur.setDate(cur.getDate()+1);
+  }
+  return out;
+}
+function statusOfDay(logs,d){
+  const k=dateKey(d);const day=logs[k]||{};
+  let a=0,r=0,m=0;
+  PRAYERS.forEach(p=>{const l=day[p];if(!l)return;if(l.status==='accomplie')a++;else if(l.status==='retardee')r++;else m++;});
+  return{accomplie:a,retardee:r,manquee:m,logged:a+r+m};
+}
+
+// ── STORAGE ────────────────────────────────────────────────────────────────────
+function loadLogs(){try{const r=localStorage.getItem('prayer_logs_v1');return r?JSON.parse(r):{};}catch{return{};}}
+function saveLogs(logs){try{localStorage.setItem('prayer_logs_v1',JSON.stringify(logs));}catch{}}
+
+// ── SETTINGS STORAGE ──────────────────────────────────────────────────────────
+function loadSettings(){
+  try{const r=localStorage.getItem('prayer_settings_v1');return r?JSON.parse(r):{darkMode:false,startDate:null};}
+  catch{return{darkMode:false,startDate:null};}
+}
+function saveSettings(s){try{localStorage.setItem('prayer_settings_v1',JSON.stringify(s));}catch{}}
+
+// ── EXCEL EXPORT ───────────────────────────────────────────────────────────────
+function exportToExcel(logs){
+  const rows=[['Date','Prière','Statut','Sous-catégorie']];
+  const sorted=Object.keys(logs).sort();
+  sorted.forEach(dk=>{
+    PRAYERS.forEach(p=>{
+      const l=logs[dk]?.[p];
+      if(l) rows.push([dk, p, STATUS_LABEL[l.status]||l.status, l.subcategory||'']);
+    });
+  });
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:12},{wch:10},{wch:12},{wch:18}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,'Prières',ws);
+  XLSX.writeFile(wb,'mes-prieres.xlsx');
+}
+
+function importFromExcel(file, onSuccess){
+  const reader=new FileReader();
+  reader.onload=(e)=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:'binary'});
+      const ws=wb.Sheets[wb.SheetNames[0]];
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1});
+      const newLogs={};
+      const statusMap={'Accomplie':'accomplie','Retardée':'retardee','Manquée':'manquee'};
+      rows.slice(1).forEach(row=>{
+        const [dk,prayer,status,sub]=row;
+        if(!dk||!prayer||!status)return;
+        if(!newLogs[dk])newLogs[dk]={};
+        newLogs[dk][prayer]={status:statusMap[status]||status,subcategory:sub||''};
+      });
+      onSuccess(newLogs);
+    }catch(err){alert("Erreur lors de l'import : "+err.message);}
+  };
+  reader.readAsBinaryString(file);
+}
+
+// ── ICONS (SVG) ────────────────────────────────────────────────────────────────
+function Icon({name,size=20,color='#1C1917'}){
+  const s={width:size,height:size,display:'inline-block',verticalAlign:'middle'};
+  const icons={
+    'chevron-back':<svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round"><polyline points="15,18 9,12 15,6"/></svg>,
+    'chevron-forward':<svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round"><polyline points="9,18 15,12 9,6"/></svg>,
+    'add':<svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
+    'close':<svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>,
+    'person':<svg style={s} viewBox="0 0 24 24" fill={color}><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>,
+    'people':<svg style={s} viewBox="0 0 24 24" fill={color}><circle cx="9" cy="8" r="3"/><path d="M2 20c0-3.3 3-6 7-6s7 2.7 7 6"/><circle cx="17" cy="8" r="2.5"/><path d="M17 14c2.5 0 5 1.5 5 4.5" strokeWidth="0"/></svg>,
+    'bed':<svg style={s} viewBox="0 0 24 24" fill={color}><path d="M2 12V7a2 2 0 012-2h16a2 2 0 012 2v5"/><path d="M2 16v3h20v-3"/><rect x="6" y="10" width="5" height="3" rx="1"/><rect x="13" y="10" width="5" height="3" rx="1"/></svg>,
+    'business':<svg style={s} viewBox="0 0 24 24" fill={color}><rect x="3" y="7" width="18" height="14" rx="1"/><path d="M8 7V5a4 4 0 018 0v2"/><line x1="8" y1="12" x2="8" y2="12" stroke="white" strokeWidth="2"/><line x1="12" y1="12" x2="12" y2="12" stroke="white" strokeWidth="2"/><line x1="16" y1="12" x2="16" y2="12" stroke="white" strokeWidth="2"/></svg>,
+    'home':<svg style={s} viewBox="0 0 24 24" fill={color}><path d="M3 12L12 3l9 9"/><path d="M5 10v9a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1v-9"/></svg>,
+    'earth':<svg style={s} viewBox="0 0 24 24" fill={color}><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15 15 0 010 20M12 2a15 15 0 000 20" fill="none" stroke="white" strokeWidth="1.2"/></svg>,
+    'sun':<svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>,
+    'calendar':<svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+    'bar-chart':<svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>,
+    'grid':<svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>,
+    'star':<svg style={s} viewBox="0 0 24 24" fill={color}><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>,
+    'settings':<svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>,
+  };
+  return icons[name]||<svg style={s} viewBox="0 0 24 24"/>;
+}
+
+function SubcategoryIcon({subcategory,size=20,color='#1C1917'}){
+  const s={width:size,height:size,display:'block',flexShrink:0};
+  if(!subcategory)return null;
+  switch(subcategory){
+
+    // ── ACCOMPLIE ──
+    case 'Seul':return(
+      <svg style={s} viewBox="0 0 24 24" fill={color}>
+        <circle cx="12" cy="7" r="4"/>
+        <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>
+      </svg>
+    );
+    case 'Avec enfant':return(
+      <svg style={s} viewBox="0 0 24 24" fill={color}>
+        <circle cx="7.5" cy="6" r="3.2"/>
+        <path d="M1 20c0-3.8 2.9-6.5 6.5-6.5S14 16.2 14 20Z"/>
+        <circle cx="17.5" cy="9.5" r="2.3"/>
+        <path d="M13 20c0-2.8 2-4.8 4.5-4.8S22 17.2 22 20Z"/>
+      </svg>
+    );
+    case 'Avec épouse':return(
+      <svg style={s} viewBox="0 0 24 24" fill={color}>
+        <circle cx="7.5" cy="10" r="3"/>
+        <circle cx="16.5" cy="10" r="3"/>
+        <path d="M1 22c0-3.5 2.8-6 6.5-6s6.5 2.5 6.5 6Z"/>
+        <path d="M10 22c0-3.5 2.8-6 6.5-6s6.5 2.5 6.5 6Z"/>
+        <path d="M12 2c-.9-1.6-3-1.6-3 0C9 3.5 12 5.2 12 5.2S15 3.5 15 2c0-1.6-2.1-1.6-3 0Z"/>
+      </svg>
+    );
+    case 'À la mosquée':return(
+      <svg style={s} viewBox="0 0 24 24" fill={color}>
+        <path d="M12 1.5C10.6 1.5 9.5 2.6 9.5 4c0 1.4 1.1 2.5 2.5 2.5-0.9-.6-1.3-1.5-1.3-2.5s.4-1.9 1.3-2.5Z"/>
+        <path d="M5 13C5 9 8 7 12 7s7 2 7 6Z"/>
+        <rect x="4" y="13" width="16" height="8" rx="0.5"/>
+        <path d="M10 21v-4c0-1 1-1.5 2-1.5s2 .5 2 1.5v4Z" fill="white"/>
+        <rect x="2.5" y="10" width="2" height="11" rx="1"/>
+        <rect x="19.5" y="10" width="2" height="11" rx="1"/>
+      </svg>
+    );
+    case 'En groupe':return(
+      <svg style={s} viewBox="0 0 24 24" fill={color}>
+        <circle cx="5" cy="6.5" r="2.5"/>
+        <path d="M0 18.5c0-3 2.2-5 5-5s5 2 5 5Z"/>
+        <circle cx="12" cy="5" r="3"/>
+        <path d="M6.5 18.5c0-3.5 2.5-6 5.5-6s5.5 2.5 5.5 6Z"/>
+        <circle cx="19" cy="6.5" r="2.5"/>
+        <path d="M14 18.5c0-3 2.2-5 5-5s5 2 5 5Z"/>
+      </svg>
+    );
+
+    // ── RETARDÉE ──
+    case 'Endormi':return(
+      <svg style={s} viewBox="0 0 24 24" fill={color}>
+        <path d="M6 5h5L6 11h5M13 3h4l-4 5h4M10 14h6l-6 7h6" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+      </svg>
+    );
+    case 'Au travail':return(
+      <svg style={s} viewBox="0 0 24 24" fill={color}>
+        <rect x="2" y="3" width="20" height="19" rx="1"/>
+        <rect x="7" y="1" width="10" height="4" rx="1"/>
+        <rect x="5.5" y="8" width="3" height="2.5" rx="0.4" fill="white"/>
+        <rect x="10.5" y="8" width="3" height="2.5" rx="0.4" fill="white"/>
+        <rect x="15.5" y="8" width="3" height="2.5" rx="0.4" fill="white"/>
+        <rect x="5.5" y="12.5" width="3" height="2.5" rx="0.4" fill="white"/>
+        <rect x="10.5" y="12.5" width="3" height="2.5" rx="0.4" fill="white"/>
+        <rect x="15.5" y="12.5" width="3" height="2.5" rx="0.4" fill="white"/>
+        <rect x="5.5" y="17" width="3" height="2.5" rx="0.4" fill="white"/>
+        <rect x="10.5" y="17" width="3" height="2.5" rx="0.4" fill="white"/>
+        <rect x="15.5" y="17" width="3" height="2.5" rx="0.4" fill="white"/>
+      </svg>
+    );
+    case 'À la maison':return(
+      <svg style={s} viewBox="0 0 24 24" fill={color}>
+        <path d="M3 11.5L12 3l9 8.5"/>
+        <path d="M5 9.5V21a1 1 0 001 1h4v-5h4v5h4a1 1 0 001-1V9.5"/>
+      </svg>
+    );
+    case "À l'extérieur":return(
+      <svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.4" strokeLinecap="round">
+        <circle cx="12" cy="12" r="10"/>
+        <path d="M12 2s-4 4.5-4 10 4 10 4 10"/>
+        <path d="M12 2s4 4.5 4 10-4 10-4 10"/>
+        <path d="M2 12h20"/>
+        <path d="M3.5 7h17"/>
+        <path d="M3.5 17h17"/>
+      </svg>
+    );
+
+    // ── MANQUÉE ──
+    case 'Oublié':return(
+      <svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round">
+        <circle cx="12" cy="12" r="9.5"/>
+        <circle cx="8.5" cy="10.5" r="2" fill={color} stroke="none"/>
+        <circle cx="15.5" cy="10.5" r="2" fill={color} stroke="none"/>
+        <ellipse cx="12" cy="16" rx="1.2" ry="1.8" fill={color} stroke="none"/>
+      </svg>
+    );
+    case 'Fainéantise':return(
+      <svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round">
+        <circle cx="12" cy="12" r="9.5"/>
+        <line x1="7" y1="10.5" x2="10.5" y2="10.5"/>
+        <line x1="13.5" y1="10.5" x2="17" y2="10.5"/>
+        <path d="M8.5 16.5Q12 13.5 15.5 16.5" fill="none"/>
+      </svg>
+    );
+    case 'Fatigué':return(
+      <svg style={s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round">
+        <circle cx="12" cy="12" r="9.5"/>
+        <line x1="7" y1="9" x2="10" y2="12"/><line x1="7" y1="12" x2="10" y2="9"/>
+        <line x1="14" y1="9" x2="17" y2="12"/><line x1="14" y1="12" x2="17" y2="9"/>
+        <line x1="8.5" y1="15.5" x2="15.5" y2="15.5"/>
+      </svg>
+    );
+    default:return null;
+  }
+}
+
+// ── PIE CHART ──────────────────────────────────────────────────────────────────
+function DayPie({size,accomplie,retardee,manquee,total=5}){
+  const r=size/2;
+  const logged=accomplie+retardee+manquee;
+  const remaining=Math.max(0,total-logged);
+  const segs=[
+    {value:accomplie,color:COLORS.accomplie},
+    {value:retardee,color:COLORS.retardee},
+    {value:manquee,color:COLORS.manquee},
+    {value:remaining,color:'#E7E5E4'},
+  ].filter(s=>s.value>0);
+  if(segs.length===0||total===0)return<svg width={size} height={size}><circle cx={r} cy={r} r={r-0.5} fill="#F5F5F4"/></svg>;
+  if(segs.length===1)return<svg width={size} height={size}><circle cx={r} cy={r} r={r-0.5} fill={segs[0].color}/></svg>;
+  let cum=0;
+  const sum=segs.reduce((a,s)=>a+s.value,0);
+  const paths=segs.map((seg,i)=>{
+    const sa=(cum/sum)*2*Math.PI;
+    cum+=seg.value;
+    const ea=(cum/sum)*2*Math.PI;
+    const la=ea-sa>Math.PI?1:0;
+    const x1=r+(r-0.5)*Math.sin(sa);const y1=r-(r-0.5)*Math.cos(sa);
+    const x2=r+(r-0.5)*Math.sin(ea);const y2=r-(r-0.5)*Math.cos(ea);
+    return<path key={i} d={`M${r} ${r} L${x1} ${y1} A${r-0.5} ${r-0.5} 0 ${la} 1 ${x2} ${y2} Z`} fill={seg.color}/>;
+  });
+  return<svg width={size} height={size}>{paths}</svg>;
+}
+
+// ── STATS PANEL ────────────────────────────────────────────────────────────────
+function StatsPanel({counts,label}){
+  const base=counts.total;
+  const aPct=pct(counts.accomplie,base);
+  const rPct=pct(counts.retardee,base);
+  const mPct=pct(counts.manquee,base);
+  const divStyle={width:1,height:36,background:'#EDEAE6',flexShrink:0};
+  return(
+    <div style={{background:'rgba(255,255,255,0.95)',borderBottom:'1px solid '+COLORS.border,padding:'10px 16px 12px',position:'sticky',top:0,zIndex:10}}>
+      {label&&<div style={{fontSize:10,letterSpacing:1.4,color:COLORS.textMuted,textTransform:'uppercase',marginBottom:6,fontWeight:600}}>{label}</div>}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-around'}}>
+        {[
+          {c:COLORS.accomplie,v:aPct,n:counts.accomplie},
+          null,
+          {c:COLORS.retardee,v:rPct,n:counts.retardee},
+          null,
+          {c:COLORS.manquee,v:mPct,n:counts.manquee},
+        ].map((s,i)=>s===null?<div key={i} style={divStyle}/>:(
+          <div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',flex:1}}>
+            <div style={{fontSize:13,fontWeight:600,color:COLORS.textMuted,marginBottom:2}}>{s.n}</div>
+            <div style={{fontSize:22,fontWeight:700,color:s.c,letterSpacing:-0.5}}>{s.v}%</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── STATUS SHEET (MODAL) ───────────────────────────────────────────────────────
+function StatusSheet({visible,prayer,initial,onClose,onSave}){
+  const [status,setStatus]=React.useState(null);
+  const [sub,setSub]=React.useState(null);
+  React.useEffect(()=>{if(visible){setStatus(initial?.status||null);setSub(initial?.subcategory||null);}},[visible,initial]);
+  if(!visible)return null;
+  const canSave=status&&sub;
+  const handleStatus=(s)=>{setStatus(s);if(!SUBCATEGORIES[s].includes(sub))setSub(null);};
+  return(
+    <div style={{position:'fixed',inset:0,zIndex:100}} onClick={onClose}>
+      <div style={{position:'absolute',inset:0,background:'rgba(28,25,23,0.45)'}}/>
+      <div style={{position:'absolute',bottom:0,left:'50%',transform:'translateX(-50%)',width:'100%',maxWidth:480,background:'#fff',borderRadius:'28px 28px 0 0',padding:'10px 24px 36px'}} onClick={e=>e.stopPropagation()}>
+        <div style={{width:42,height:4,background:'#E7E5E4',borderRadius:2,margin:'0 auto 18px'}}/>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:18}}>
+          <div>
+            <div style={{fontSize:10,color:COLORS.textMuted,textTransform:'uppercase',letterSpacing:1.6,fontWeight:600}}>Prière</div>
+            <div style={{fontSize:28,fontWeight:600,color:COLORS.textPrimary,marginTop:2,fontFamily:'Georgia,serif'}}>{prayer}</div>
+          </div>
+          <button onClick={onClose} style={{width:36,height:36,borderRadius:18,background:COLORS.surfaceElevated,display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <Icon name="close" size={22} color={COLORS.textSecondary}/>
+          </button>
+        </div>
+
+        <div style={{fontSize:11,color:COLORS.textSecondary,textTransform:'uppercase',letterSpacing:1.4,fontWeight:700,marginTop:12,marginBottom:10}}>Statut</div>
+        <div style={{display:'flex',gap:10,marginBottom:16}}>
+          {['accomplie','retardee','manquee'].map(s=>{
+            const active=status===s;
+            return(
+              <button key={s} onClick={()=>handleStatus(s)} style={{flex:1,border:`1.5px solid ${STATUS_COLOR[s]}`,borderRadius:16,padding:'14px 4px',background:active?STATUS_COLOR[s]:'#fff',color:active?'#fff':STATUS_COLOR[s],fontSize:14,fontWeight:700,minHeight:48}}>
+                {STATUS_LABEL[s]}
+              </button>
+            );
+          })}
+        </div>
+
+        {status&&(
+          <React.Fragment>
+            <div style={{fontSize:11,color:COLORS.textSecondary,textTransform:'uppercase',letterSpacing:1.4,fontWeight:700,marginBottom:10}}>{SUBCATEGORY_QUESTION[status]}</div>
+            <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:20}}>
+              {SUBCATEGORIES[status].map(sc=>{
+                const active=sub===sc;
+                return(
+                  <button key={sc} onClick={()=>setSub(sc)} style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'14px 18px',borderRadius:14,background:active?'#FBF7EC':COLORS.surfaceElevated,border:active?`1px solid ${COLORS.gold}`:'1px solid transparent',minHeight:48,textAlign:'left'}}>
+                    <span style={{fontSize:15,color:COLORS.textPrimary,fontWeight:active?600:500}}>{sc}</span>
+                    <div style={{width:34,height:34,borderRadius:17,background:STATUS_COLOR[status],display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                      <SubcategoryIcon subcategory={sc} size={20} color="#0c0a09"/>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </React.Fragment>
+        )}
+
+        <div style={{display:'flex',gap:10,marginTop:4}}>
+          {initial&&(
+            <button onClick={()=>onSave(null)} style={{padding:'16px 20px',borderRadius:16,background:COLORS.surfaceElevated,color:COLORS.textSecondary,fontWeight:600,fontSize:14}}>Effacer</button>
+          )}
+          <button onClick={()=>canSave&&onSave({status,subcategory:sub})} style={{flex:1,background:canSave?COLORS.textPrimary:COLORS.textMuted,color:'#fff',padding:'16px',borderRadius:16,fontSize:15,fontWeight:700,letterSpacing:0.3,opacity:canSave?1:0.7}}>Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── TODAY VIEW ─────────────────────────────────────────────────────────────────
+function AujourdhuiScreen({logs,setLog}){
+  const [currentDate,setCurrentDate]=React.useState(todayDate);
+  const [editing,setEditing]=React.useState(null);
+  const curKey=dateKey(currentDate);
+  const today=todayDate();
+  const isToday=isSameDay(currentDate,today);
+  const counts=countInRange(logs,currentDate,currentDate);
+  const totalLogged=counts.accomplie+counts.retardee+counts.manquee;
+
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',height:'100%'}}>
+      <StatsPanel counts={counts} label={relativeLabel(currentDate)}/>
+      <div style={{overflowY:'auto',padding:'8px 20px 20px'}}>
+        <div style={{marginTop:4,marginBottom:16}}>
+          <div style={{fontSize:11,color:COLORS.textMuted,textTransform:'uppercase',letterSpacing:1.5,fontWeight:600,marginBottom:8}}>{relativeLabel(currentDate)}</div>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10}}>
+            <button onClick={()=>setCurrentDate(addDays(currentDate,-1))} style={{width:44,height:44,borderRadius:22,background:COLORS.surface,border:`1px solid #F0EFEC`,display:'flex',alignItems:'center',justifyContent:'center'}}>
+              <Icon name="chevron-back" size={20} color={COLORS.textPrimary}/>
+            </button>
+            <div style={{flex:1,textAlign:'center'}}>
+              <div style={{fontSize:20,color:COLORS.textPrimary,fontWeight:600,letterSpacing:-0.3,fontFamily:'Georgia,serif'}}>{formatFrenchDate(currentDate)}</div>
+              {!isToday&&(
+                <button onClick={()=>setCurrentDate(today)} style={{marginTop:4,padding:'4px 12px',borderRadius:999,background:'#FBF7EC',border:`1px solid ${COLORS.gold}`,fontSize:11,color:COLORS.textPrimary,fontWeight:600}}>
+                  Revenir à aujourd'hui
+                </button>
+              )}
+            </div>
+            <button onClick={()=>setCurrentDate(addDays(currentDate,1))} style={{width:44,height:44,borderRadius:22,background:COLORS.surface,border:`1px solid #F0EFEC`,display:'flex',alignItems:'center',justifyContent:'center'}}>
+              <Icon name="chevron-forward" size={20} color={COLORS.textPrimary}/>
+            </button>
+          </div>
+
+          <div style={{marginTop:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
+              <span style={{fontSize:13,color:COLORS.textSecondary}}><strong style={{fontSize:16,color:COLORS.textPrimary}}>{totalLogged}</strong> sur 5 prières</span>
+              <span style={{fontSize:13,fontWeight:700,color:COLORS.textPrimary}}>{Math.round(totalLogged/5*100)}%</span>
+            </div>
+            <div style={{height:10,borderRadius:999,background:'#EAE8E4',overflow:'hidden',display:'flex'}}>
+              {counts.accomplie>0&&<div style={{flex:counts.accomplie,background:COLORS.accomplie,height:'100%'}}/>}
+              {counts.retardee>0&&<div style={{flex:counts.retardee,background:COLORS.retardee,height:'100%'}}/>}
+              {counts.manquee>0&&<div style={{flex:counts.manquee,background:COLORS.manquee,height:'100%'}}/>}
+              {totalLogged<5&&<div style={{flex:5-totalLogged,background:'#EAE8E4',height:'100%'}}/>}
+            </div>
+          </div>
+        </div>
+
+        <div style={{display:'flex',flexDirection:'column',gap:10}}>
+          {PRAYERS.map(p=>{
+            const log=logs[curKey]?.[p];
+            const isFri=isFriday(currentDate);
+            const isDhuhr=p==='Dhuhr';
+            const color=log?(isFri&&isDhuhr?getJoumuaColor(log):STATUS_COLOR[log.status]):COLORS.gray;
+            const prayerLabel=isFri&&isDhuhr?"Joumou'a":p;
+            return(
+              <button key={p} onClick={()=>setEditing(p)} style={{background:COLORS.surface,padding:'14px 18px',borderRadius:20,border:`1px solid ${isFri&&isDhuhr?'#EAB30840':'#F0EFEC'}`,display:'flex',alignItems:'center',justifyContent:'space-between',minHeight:68,textAlign:'left',width:'100%'}}>
+                <div style={{display:'flex',alignItems:'center',gap:14,flex:1}}>
+                  <div style={{width:11,height:11,borderRadius:5.5,background:color,flexShrink:0}}/>
+                  <div>
+                    <div style={{display:'flex',alignItems:'center',gap:6}}>
+                      <span style={{fontSize:20,fontWeight:600,color:COLORS.textPrimary,fontFamily:'Georgia,serif',letterSpacing:-0.3}}>{prayerLabel}</span>
+                      {isFri&&isDhuhr&&<span style={{fontSize:10,color:JOUMUA_YELLOW,fontWeight:700,letterSpacing:0.5}}>★</span>}
+                    </div>
+                    <div style={{fontSize:13,color:COLORS.textSecondary,marginTop:2}}>{log?`${STATUS_LABEL[log.status]} • ${log.subcategory}`:'Non enregistrée'}</div>
+                  </div>
+                </div>
+                <div style={{width:38,height:38,borderRadius:19,background:log?color:COLORS.surfaceElevated,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                  {log?<SubcategoryIcon subcategory={log.subcategory} size={22} color="#0c0a09"/>:<Icon name="add" size={20} color={COLORS.textPrimary}/>}
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {isFriday(currentDate)&&(
+          <div style={{marginTop:14,padding:'14px 18px',borderRadius:16,background:'#FFFBEB',border:'1px solid #FDE68A',textAlign:'center'}}>
+            <div style={{fontSize:18,color:JOUMUA_YELLOW,fontWeight:700,letterSpacing:0.5}}>جمعة مباركة</div>
+            <div style={{fontSize:14,color:'#92400E',fontWeight:600,marginTop:4}}>Joumou'a Moubarak</div>
+          </div>
+        )}
+      </div>
+
+      <StatusSheet visible={!!editing} prayer={editing} initial={editing?logs[curKey]?.[editing]:null}
+        onClose={()=>setEditing(null)}
+        onSave={log=>{setLog(curKey,editing,log);setEditing(null);}}
+      />
+    </div>
+  );
+}
+
+
+function WeekCell({d,p,log,onPress}){
+  const isFri=d.getDay()===5;
+  const isDh=p==='Dhuhr';
+  const cellColor=log?(isFri&&isDh?getJoumuaColor(log):STATUS_COLOR[log.status]):'#EAE8E4';
+  const border=isFri&&isDh?'2px solid '+JOUMUA_YELLOW:'none';
+  return(
+    <button onClick={onPress} style={{flex:1,aspectRatio:'1',marginInline:3,borderRadius:8,background:cellColor,minHeight:36,display:'flex',alignItems:'center',justifyContent:'center',border:border,position:'relative'}}>
+      {log&&<SubcategoryIcon subcategory={log.subcategory} size={18} color="#0c0a09"/>}
+      {isFri&&isDh&&<span style={{position:'absolute',top:1,right:2,fontSize:6,color:'#0c0a09',opacity:0.7}}>★</span>}
+    </button>
+  );
+}
+
+// ── WEEK VIEW ──────────────────────────────────────────────────────────────────
+function SemaineScreen({logs,setLog}){
+  const [weekStart,setWeekStart]=React.useState(()=>startOfWeek(new Date()));
+  const [editing,setEditing]=React.useState(null);
+  const today=todayDate();
+  const days=React.useMemo(()=>Array.from({length:7},(_,i)=>addDays(weekStart,i)),[weekStart]);
+  const weekEnd=days[6];
+  const counts=countInRange(logs,weekStart,weekEnd);
+  const currentWeekStart=startOfWeek(today);
+  const isCurrentWeek=weekStart.getTime()===currentWeekStart.getTime();
+
+  const fmtRange=(s,e)=>{
+    const sm=FRENCH_MONTHS[s.getMonth()],em=FRENCH_MONTHS[e.getMonth()];
+    if(s.getMonth()===e.getMonth()&&s.getFullYear()===e.getFullYear())
+      return `${s.getDate()} – ${e.getDate()} ${em} ${e.getFullYear()}`;
+    return `${s.getDate()} ${sm} – ${e.getDate()} ${em} ${e.getFullYear()}`;
+  };
+
+  const last7=React.useMemo(()=>countInRange(logs,addDays(today,-6),today),[logs]);
+  const last15=React.useMemo(()=>countInRange(logs,addDays(today,-14),today),[logs]);
+
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',height:'100%'}}>
+      <StatsPanel counts={counts} label="Cette semaine"/>
+      <div style={{overflowY:'auto',padding:16,paddingBottom:30}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+          <button onClick={()=>setWeekStart(addDays(weekStart,-7))} style={{width:40,height:40,borderRadius:20,background:COLORS.surface,border:'1px solid #F0EFEC',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <Icon name="chevron-back" size={20} color={COLORS.textPrimary}/>
+          </button>
+          <div style={{textAlign:'center'}}>
+            <div style={{fontSize:15,fontWeight:600,color:COLORS.textPrimary}}>{fmtRange(weekStart,weekEnd)}</div>
+            {!isCurrentWeek&&<button onClick={()=>setWeekStart(currentWeekStart)} style={{marginTop:4,padding:'4px 12px',borderRadius:999,background:'#FBF7EC',border:`1px solid ${COLORS.gold}`,fontSize:11,color:COLORS.textPrimary,fontWeight:600}}>Semaine actuelle</button>}
+          </div>
+          <button onClick={()=>setWeekStart(addDays(weekStart,7))} style={{width:40,height:40,borderRadius:20,background:COLORS.surface,border:'1px solid #F0EFEC',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <Icon name="chevron-forward" size={20} color={COLORS.textPrimary}/>
+          </button>
+        </div>
+
+        <div style={{background:COLORS.surface,padding:10,borderRadius:18,border:'1px solid #F0EFEC',marginBottom:16}}>
+          <div style={{display:'flex',marginBottom:10}}>
+            <div style={{width:30}}/>
+            {days.map((d,i)=>{
+              const isToday=isSameDay(d,today);
+              return(
+                <div key={i} style={{flex:1,textAlign:'center'}}>
+                  <div style={{fontSize:11,color:COLORS.textMuted,fontWeight:700,letterSpacing:1}}>{DAY_LABELS[i]}</div>
+                  <div style={{fontSize:14,fontWeight:700,color:isToday?COLORS.gold:COLORS.textPrimary,marginTop:2}}>{d.getDate()}</div>
+                </div>
+              );
+            })}
+          </div>
+          {PRAYERS.map(p=>(
+            <div key={p} style={{display:'flex',alignItems:'center',marginBottom:6}}>
+              <div style={{width:30,textAlign:'center',fontSize:20,color:COLORS.textPrimary,fontWeight:600,fontFamily:'Georgia,serif'}}>{PRAYER_INITIALS[p]}</div>
+              {days.map((d,i)=>{
+                const log=logs[dateKey(d)]?.[p];
+                const color=log?STATUS_COLOR[log.status]:'#EAE8E4';
+                return(
+                  <WeekCell key={i} d={d} p={p} log={log} onPress={()=>setEditing({date:d,prayer:p})}/>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        <PeriodSummaryCard title="Les 7 derniers jours" counts={last7}/>
+        <PeriodSummaryCard title="Les 15 derniers jours" counts={last15}/>
+      </div>
+
+      <StatusSheet visible={!!editing} prayer={editing?.prayer||null} initial={editing?logs[dateKey(editing.date)]?.[editing.prayer]:null}
+        onClose={()=>setEditing(null)}
+        onSave={log=>{if(editing)setLog(dateKey(editing.date),editing.prayer,log);setEditing(null);}}
+      />
+    </div>
+  );
+}
+
+// ── MONTH VIEW ─────────────────────────────────────────────────────────────────
+function MoisScreen({logs}){
+  const today=React.useMemo(todayDate,[]);
+  const [cursor,setCursor]=React.useState(()=>new Date(today.getFullYear(),today.getMonth(),1));
+  const monthStart=new Date(cursor.getFullYear(),cursor.getMonth(),1);
+  const monthEnd=new Date(cursor.getFullYear(),cursor.getMonth()+1,0);
+  const counts=React.useMemo(()=>countInRange(logs,monthStart,monthEnd),[logs,cursor]);
+  const last30=React.useMemo(()=>{const t=todayDate();return countInRange(logs,addDays(t,-29),t);},[logs]);
+  const isCurrentMonth=cursor.getFullYear()===today.getFullYear()&&cursor.getMonth()===today.getMonth();
+
+  const firstDow=(monthStart.getDay()+6)%7;
+  const daysInMonth=monthEnd.getDate();
+  const cells=[];
+  for(let i=0;i<firstDow;i++)cells.push(null);
+  for(let d=1;d<=daysInMonth;d++)cells.push(new Date(cursor.getFullYear(),cursor.getMonth(),d));
+  while(cells.length%7!==0)cells.push(null);
+
+  const cellSize=Math.floor((Math.min(window.innerWidth,480)-32-16-6)/7);
+  const pieSize=Math.max(22,Math.floor(cellSize*0.55));
+
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',height:'100%'}}>
+      <StatsPanel counts={counts} label="Ce mois"/>
+      <div style={{overflowY:'auto',padding:16,paddingBottom:30}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+          <button onClick={()=>setCursor(new Date(cursor.getFullYear(),cursor.getMonth()-1,1))} style={{width:40,height:40,borderRadius:20,background:COLORS.surface,border:'1px solid #F0EFEC',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <Icon name="chevron-back" size={20} color={COLORS.textPrimary}/>
+          </button>
+          <div style={{textAlign:'center'}}>
+            <div style={{fontSize:19,fontWeight:600,color:COLORS.textPrimary,fontFamily:'Georgia,serif',textTransform:'capitalize'}}>{FRENCH_MONTHS_CAP[cursor.getMonth()]} {cursor.getFullYear()}</div>
+            {!isCurrentMonth&&<button onClick={()=>setCursor(new Date(today.getFullYear(),today.getMonth(),1))} style={{marginTop:4,padding:'4px 12px',borderRadius:999,background:'#FBF7EC',border:`1px solid ${COLORS.gold}`,fontSize:11,color:COLORS.textPrimary,fontWeight:600}}>Mois actuel</button>}
+          </div>
+          <button onClick={()=>setCursor(new Date(cursor.getFullYear(),cursor.getMonth()+1,1))} style={{width:40,height:40,borderRadius:20,background:COLORS.surface,border:'1px solid #F0EFEC',display:'flex',alignItems:'center',justifyContent:'center'}}>
+            <Icon name="chevron-forward" size={20} color={COLORS.textPrimary}/>
+          </button>
+        </div>
+
+        <div style={{background:COLORS.surface,padding:8,borderRadius:18,border:'1px solid #F0EFEC',marginBottom:16}}>
+          <div style={{display:'flex',marginBottom:6,gap:1}}>
+            {DAY_LABELS.map((l,i)=><div key={i} style={{width:cellSize,textAlign:'center',fontSize:11,color:COLORS.textMuted,fontWeight:700,letterSpacing:1}}>{l}</div>)}
+          </div>
+          <div style={{display:'flex',flexWrap:'wrap',gap:1}}>
+            {cells.map((d,i)=>{
+              if(!d)return<div key={i} style={{width:cellSize,height:cellSize}}/>;
+              const s=statusOfDay(logs,d);
+              const isToday=isSameDay(d,today);
+              const isFuture=d>today;
+              return(
+                <div key={i} style={{width:cellSize,height:cellSize,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',borderRadius:8,background:isToday?'#FBF7EC':'transparent',padding:2}}>
+                  <div style={{fontSize:12,color:isToday?COLORS.gold:COLORS.textPrimary,fontWeight:700,marginBottom:2}}>{d.getDate()}</div>
+                  {!isFuture&&s.logged>0&&<DayPie size={pieSize} accomplie={s.accomplie} retardee={s.retardee} manquee={s.manquee}/>}
+                  {!isFuture&&s.logged===0&&<div style={{width:pieSize,height:pieSize,borderRadius:999,background:'#F0EEEA'}}/>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <PeriodSummaryCard title="Les 30 derniers jours" counts={last30}/>
+      </div>
+    </div>
+  );
+}
+
+// ── PERIOD SUMMARY CARD ────────────────────────────────────────────────────────
+function PeriodSummaryCard({title,counts}){
+  const exp=counts.expected||1;
+  const stats=[
+    {c:COLORS.accomplie,v:counts.accomplie,p:pct(counts.accomplie,exp)},
+    {c:COLORS.retardee, v:counts.retardee, p:pct(counts.retardee, exp)},
+    {c:COLORS.manquee,  v:counts.manquee,  p:pct(counts.manquee,  exp)},
+  ];
+  return(
+    <div style={{background:COLORS.surface,borderRadius:18,border:'1px solid #F0EFEC',padding:'12px 16px',marginBottom:12}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
+        <div style={{fontSize:13,fontWeight:700,color:COLORS.textPrimary}}>{title}</div>
+        <div style={{fontSize:11,color:COLORS.textMuted}}>{counts.total} / {counts.expected} enregistrées</div>
+      </div>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-around'}}>
+        {stats.map((s,i)=>[
+          i>0&&<div key={'d'+i} style={{width:1,height:32,background:'#EDEAE6'}}/>,
+          <div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',flex:1}}>
+            <div style={{fontSize:13,fontWeight:600,color:COLORS.textMuted,marginBottom:2}}>{s.v}</div>
+            <div style={{fontSize:22,fontWeight:700,color:s.c,letterSpacing:-0.5}}>{s.p}%</div>
+          </div>
+        ])}
+      </div>
+    </div>
+  );
+}
+
+// ── PAR PRIÈRE VIEW ────────────────────────────────────────────────────────────
+function PriereScreen({logs}){
+  const [selected,setSelected]=React.useState([...PRAYERS]);
+  const [period,setPeriod]=React.useState('last_7_days');
+  const [cStart,setCStart]=React.useState('');
+  const [cEnd,setCEnd]=React.useState('');
+
+  const PERIODS=[
+    {key:'last_7_days',label:'Les 7 derniers jours'},
+    {key:'last_15_days',label:'Les 15 derniers jours'},
+    {key:'last_30_days',label:'Les 30 derniers jours'},
+    {key:'custom',label:'Plage personnalisée'},
+  ];
+
+  const getRange=(p)=>{
+    const t=todayDate();
+    if(p==='last_7_days')return{start:addDays(t,-6),end:t};
+    if(p==='last_15_days')return{start:addDays(t,-14),end:t};
+    if(p==='last_30_days')return{start:addDays(t,-29),end:t};
+    if(p==='custom'){
+      const s=cStart?new Date(cStart):null;
+      const e=cEnd?new Date(cEnd):null;
+      if(s&&e&&s<=e)return{start:s,end:e};
+      return null;
+    }
+    return null;
+  };
+
+  const range=getRange(period);
+  const counts=React.useMemo(()=>{
+    if(!range||selected.length===0)return{accomplie:0,retardee:0,manquee:0,total:0,expected:0};
+    return countInRange(logs,range.start,range.end,selected);
+  },[logs,range?.start?.toString(),range?.end?.toString(),selected]);
+
+  const allSel=selected.length===PRAYERS.length;
+  const pLabel=selected.length===0?'Aucune':allSel?'Toutes':selected.length===1?selected[0]:`${selected.length} prières`;
+  const perLabel=PERIODS.find(p=>p.key===period)?.label||'';
+
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',height:'100%'}}>
+      <StatsPanel counts={counts} label={`${pLabel} • ${perLabel}`}/>
+      <div style={{overflowY:'auto',padding:'16px 16px 40px'}}>
+        <div style={{fontSize:11,color:COLORS.textSecondary,textTransform:'uppercase',letterSpacing:1.4,fontWeight:700,marginTop:8,marginBottom:10}}>Prières</div>
+        <div style={{display:'flex',gap:6,marginBottom:16}}>
+          {PRAYERS.map(p=>{
+            const active=selected.includes(p);
+            return(
+              <button key={p} onClick={()=>setSelected(prev=>prev.includes(p)?prev.filter(x=>x!==p):[...prev,p])} style={{flex:1,padding:'12px 4px',borderRadius:999,background:active?COLORS.textPrimary:COLORS.surface,border:`1px solid ${active?COLORS.textPrimary:'#F0EFEC'}`,color:active?'#fff':COLORS.textPrimary,fontWeight:600,fontSize:12,fontFamily:'Georgia,serif',minHeight:44}}>
+                {p}
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{fontSize:11,color:COLORS.textSecondary,textTransform:'uppercase',letterSpacing:1.4,fontWeight:700,marginBottom:10}}>Période</div>
+        <div style={{display:'flex',flexDirection:'column',gap:8}}>
+          {PERIODS.map(it=>{
+            const active=period===it.key;
+            return(
+              <button key={it.key} onClick={()=>setPeriod(it.key)} style={{padding:'14px 16px',borderRadius:14,background:active?'#FBF7EC':COLORS.surface,border:`1px solid ${active?COLORS.gold:'#F0EFEC'}`,textAlign:'left',minHeight:48,fontSize:14,color:COLORS.textPrimary,fontWeight:active?700:500}}>
+                {it.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {period==='custom'&&(
+          <div style={{marginTop:12,display:'flex',flexDirection:'column',gap:10}}>
+            <div>
+              <div style={{fontSize:11,color:COLORS.textSecondary,textTransform:'uppercase',letterSpacing:1,fontWeight:600,marginBottom:6}}>Début</div>
+              <input type="date" value={cStart} onChange={e=>setCStart(e.target.value)} style={{width:'100%',background:COLORS.surface,border:'1px solid #E7E5E4',borderRadius:12,padding:'12px 14px',fontSize:15,color:COLORS.textPrimary,minHeight:44}}/>
+            </div>
+            <div>
+              <div style={{fontSize:11,color:COLORS.textSecondary,textTransform:'uppercase',letterSpacing:1,fontWeight:600,marginBottom:6}}>Fin</div>
+              <input type="date" value={cEnd} onChange={e=>setCEnd(e.target.value)} style={{width:'100%',background:COLORS.surface,border:'1px solid #E7E5E4',borderRadius:12,padding:'12px 14px',fontSize:15,color:COLORS.textPrimary,minHeight:44}}/>
+            </div>
+            {!range&&cStart&&cEnd&&<div style={{color:COLORS.manquee,fontSize:12,marginTop:4}}>Saisissez une plage valide (début ≤ fin).</div>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// ── VENDREDI / JOUMOU'A VIEW ───────────────────────────────────────────────────
+function VendrediScreen({logs,setLog}){
+  const today=todayDate();
+  const [year,setYear]=React.useState(today.getFullYear());
+  const [editing,setEditing]=React.useState(null); // {date, prayer}
+  const currentYear=today.getFullYear();
+  const isCurrentYear=year===currentYear;
+
+  const annualStats=React.useMemo(()=>{
+    const fridays=getFridaysOfYear(year);
+    let mosquee=0,horsMosquee=0,retardee=0,manquee=0,total=0;
+    fridays.forEach(f=>{
+      const k=dateKey(f);
+      const log=logs[k]?.['Dhuhr'];
+      if(!log)return;
+      total++;
+      const s=getJoumuaStatus(log);
+      if(s==='mosquee')mosquee++;
+      else if(s==='hors_mosquee')horsMosquee++;
+      else if(s==='retardee')retardee++;
+      else if(s==='manquee')manquee++;
+    });
+    const base=total||1;
+    return{mosquee,horsMosquee,retardee,manquee,total,fridays:fridays.length,
+      pMosquee:pct(mosquee,base),pHors:pct(horsMosquee,base),pManquee:pct(manquee+retardee,base)};
+  },[logs,year]);
+
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+
+
+      {/* Year navigation */}
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'10px 16px 6px',flexShrink:0}}>
+        <button onClick={()=>setYear(y=>y-1)} style={{width:36,height:36,borderRadius:18,background:COLORS.surface,border:'1px solid #F0EFEC',display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <Icon name="chevron-back" size={18} color={COLORS.textPrimary}/>
+        </button>
+        <div style={{textAlign:'center'}}>
+          <div style={{fontSize:17,fontWeight:700,color:COLORS.textPrimary,fontFamily:'Georgia,serif'}}>{year}</div>
+          {!isCurrentYear&&<button onClick={()=>setYear(currentYear)} style={{marginTop:2,padding:'3px 10px',borderRadius:999,background:'#FBF7EC',border:'1px solid '+COLORS.gold,fontSize:10,color:COLORS.textPrimary,fontWeight:600}}>{"Année actuelle"}</button>}
+        </div>
+        <button onClick={()=>setYear(y=>y+1)} style={{width:36,height:36,borderRadius:18,background:COLORS.surface,border:'1px solid #F0EFEC',display:'flex',alignItems:'center',justifyContent:'center'}}>
+          <Icon name="chevron-forward" size={18} color={COLORS.textPrimary}/>
+        </button>
+      </div>
+
+      {/* Grid - compact, fits screen */}
+      <div style={{flex:1,overflowY:'auto',padding:'0 10px 8px'}}>
+        <div style={{background:COLORS.surface,borderRadius:12,border:'1px solid #F0EFEC',padding:'8px 6px',display:'flex',flexDirection:'column'}}>
+          {/* Header */}
+          <div style={{display:'flex',gap:10}}>
+            {/* Grille gauche */}
+            <div style={{flex:1}}>
+              <div style={{display:'flex',alignItems:'center',marginBottom:4}}>
+                <div style={{width:70,flexShrink:0}}/>
+                {['V1','V2','V3','V4','V5'].map(n=>(
+                  <div key={n} style={{width:46,marginInline:2,flexShrink:0,textAlign:'center',fontSize:10,color:COLORS.textMuted,fontWeight:700}}>{n}</div>
+                ))}
+              </div>
+              {FRENCH_MONTHS_CAP.map((monthName,mi)=>{
+                const fridays=getFridaysOfMonth(year,mi);
+                return(
+                  <div key={mi} style={{display:'flex',alignItems:'center',marginBottom:3}}>
+                    <div style={{width:70,flexShrink:0,fontSize:11,color:COLORS.textSecondary,fontWeight:600}}>{monthName}</div>
+                    {fridays.map((f,fi)=>{
+                      if(!f)return<div key={fi} style={{width:46,marginInline:2,flexShrink:0}}/>;
+                      const k=dateKey(f);
+                      const log=logs[k]?.['Dhuhr'];
+                      const isFuture=f>today;
+                      const s=log?getJoumuaStatus(log):null;
+                      const color=s==='mosquee'?COLORS.accomplie:s==='hors_mosquee'?JOUMUA_YELLOW:s==='retardee'?COLORS.retardee:s==='manquee'?COLORS.manquee:'#EAE8E4';
+                      const isToday=isSameDay(f,today);
+                      return(
+                        <button key={fi} onClick={()=>!isFuture&&setEditing({date:f,prayer:'Dhuhr'})} style={{
+                          width:46,height:46,flexShrink:0,marginInline:2,borderRadius:10,
+                          background:isFuture?'#F5F5F4':color,
+                          border:isToday?'2px solid '+COLORS.gold:'1px solid transparent',
+                          display:'flex',alignItems:'center',justifyContent:'center',
+                          opacity:isFuture?0.2:1,cursor:isFuture?'default':'pointer',
+                        }}>
+                          {log&&!isFuture&&<SubcategoryIcon subcategory={log.subcategory} size={16} color="#fff"/>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Légende droite avec stats */}
+            <div style={{display:'flex',flexDirection:'column',justifyContent:'center',gap:22,paddingLeft:10,borderLeft:'1px solid #F0EFEC',flexShrink:0}}>
+              {[
+                {c:COLORS.accomplie,l:'Mosquée',      n:annualStats.mosquee,    p:annualStats.pMosquee},
+                {c:JOUMUA_YELLOW,   l:'Hors mosquée', n:annualStats.horsMosquee,p:annualStats.pHors},
+                {c:COLORS.retardee, l:'En retard',    n:annualStats.retardee,   p:pct(annualStats.retardee,annualStats.total||1)},
+                {c:COLORS.manquee,  l:'Manquée',      n:annualStats.manquee,    p:pct(annualStats.manquee,annualStats.total||1)},
+                {c:'#A8A29E',       l:'Non saisie',   n:annualStats.fridays-(annualStats.total||0), p:null},
+              ].map(({c,l,n,p})=>(
+                <div key={l} style={{display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+                  {p!==null
+                    ?<React.Fragment>
+                      <div style={{fontSize:22,fontWeight:700,color:c,lineHeight:1}}>{p}%</div>
+                      <div style={{fontSize:11,fontWeight:600,color:c,marginTop:2}}>{n} {l}</div>
+                    </React.Fragment>
+                    :<React.Fragment>
+                      <div style={{fontSize:22,fontWeight:700,color:COLORS.textMuted,lineHeight:1}}>{n}</div>
+                      <div style={{fontSize:11,fontWeight:600,color:COLORS.textMuted,marginTop:2}}>{l}</div>
+                    </React.Fragment>
+                  }
+                </div>
+              ))}
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <StatusSheet
+        visible={!!editing}
+        prayer={editing?"Joumou'a (Dhuhr)":null}
+        initial={editing?logs[dateKey(editing.date)]?.['Dhuhr']:null}
+        onClose={()=>setEditing(null)}
+        onSave={log=>{
+          if(editing){setLog(dateKey(editing.date),'Dhuhr',log);}
+          setEditing(null);
+        }}
+      />
+    </div>
+  );
+}
+
+
+// ── PARAMETRES SCREEN ──────────────────────────────────────────────────────────
+function ParametresScreen({logs,setLogs,settings,setSettings}){
+  const [deleteStep,setDeleteStep]=React.useState(0); // 0=idle, 1=question, 2=wrong
+  const [answer,setAnswer]=React.useState('');
+  const [importMsg,setImportMsg]=React.useState('');
+  const fileRef=React.useRef(null);
+
+  const bg=settings.darkMode?'#1a1a2e':'#FAFAF9';
+  const surface=settings.darkMode?'#111127':'#FFFFFF';
+  const border=settings.darkMode?'#2a2a4a':'#F0EFEC';
+  const textPrimary=settings.darkMode?'#e0e0f0':COLORS.textPrimary;
+  const textSecondary=settings.darkMode?'#a0a0b8':COLORS.textSecondary;
+
+  const updateSettings=(key,val)=>{
+    const next={...settings,[key]:val};
+    setSettings(next);
+    saveSettings(next);
+  };
+
+  const handleDelete=()=>{
+    if(deleteStep===0){setDeleteStep(1);setAnswer('');}
+    else if(deleteStep===1){
+      if(answer.trim()==='7'){
+        setLogs({});
+        saveLogs({});
+        setDeleteStep(0);
+        setAnswer('');
+        alert('Toutes les données ont été effacées.');
+      } else {
+        setDeleteStep(2);
+        setTimeout(()=>{setDeleteStep(1);setAnswer('');},2000);
+      }
+    }
+  };
+
+  const totalPrayers=Object.values(logs).reduce((acc,day)=>acc+Object.keys(day).length,0);
+  const startDate=settings.startDate||null;
+
+  return(
+    <div style={{flex:1,display:'flex',flexDirection:'column',height:'100%',background:bg}}>
+      <div style={{background:settings.darkMode?'rgba(17,17,39,0.95)':'rgba(255,255,255,0.95)',borderBottom:'1px solid '+border,padding:'14px 16px',flexShrink:0}}>
+        <div style={{fontSize:10,letterSpacing:1.4,color:COLORS.textMuted,textTransform:'uppercase',fontWeight:600}}>Réglages</div>
+        <div style={{fontSize:22,fontWeight:700,color:textPrimary,fontFamily:'Georgia,serif',marginTop:2}}>Paramètres</div>
+      </div>
+
+      <div style={{overflowY:'auto',padding:'16px 16px 40px'}}>
+
+        {/* Theme sombre */}
+        <div style={{background:surface,borderRadius:16,border:'1px solid '+border,padding:'14px 16px',marginBottom:12}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+            <div>
+              <div style={{fontSize:15,fontWeight:600,color:textPrimary}}>Thème sombre</div>
+              <div style={{fontSize:12,color:textSecondary,marginTop:2}}>Changer l'apparence de l'app</div>
+            </div>
+            <button onClick={()=>updateSettings('darkMode',!settings.darkMode)} style={{
+              width:50,height:28,borderRadius:14,
+              background:settings.darkMode?'#3b82f6':'#E5E7EB',
+              position:'relative',transition:'background 0.2s',border:'none',
+            }}>
+              <div style={{
+                position:'absolute',top:3,left:settings.darkMode?23:3,
+                width:22,height:22,borderRadius:11,background:'white',
+                transition:'left 0.2s',boxShadow:'0 1px 3px rgba(0,0,0,0.2)',
+              }}/>
+            </button>
+          </div>
+        </div>
+
+        {/* Date de début */}
+        <div style={{background:surface,borderRadius:16,border:'1px solid '+border,padding:'14px 16px',marginBottom:12}}>
+          <div style={{fontSize:15,fontWeight:600,color:textPrimary,marginBottom:4}}>Date de début du suivi</div>
+          <div style={{fontSize:12,color:textSecondary,marginBottom:10}}>Les statistiques ne comptent qu'à partir de cette date</div>
+          <input type="date" value={settings.startDate||''} onChange={e=>updateSettings('startDate',e.target.value||null)}
+            style={{width:'100%',background:settings.darkMode?'#1a1a3a':'#F5F5F4',border:'1px solid '+border,borderRadius:10,padding:'10px 12px',fontSize:14,color:textPrimary}}/>
+          {settings.startDate&&(
+            <button onClick={()=>updateSettings('startDate',null)} style={{marginTop:8,fontSize:12,color:COLORS.retardee,background:'none',border:'none',padding:0}}>
+              Supprimer la date de début
+            </button>
+          )}
+        </div>
+
+        {/* Stats */}
+        <div style={{background:surface,borderRadius:16,border:'1px solid '+border,padding:'14px 16px',marginBottom:12}}>
+          <div style={{fontSize:15,fontWeight:600,color:textPrimary,marginBottom:8}}>Données enregistrées</div>
+          <div style={{fontSize:13,color:textSecondary}}>{totalPrayers} prière{totalPrayers!==1?'s':''} enregistrée{totalPrayers!==1?'s':''}</div>
+          <div style={{fontSize:13,color:textSecondary,marginTop:2}}>{Object.keys(logs).length} jour{Object.keys(logs).length!==1?'s':''} avec au moins une entrée</div>
+        </div>
+
+        {/* Export Excel */}
+        <div style={{background:surface,borderRadius:16,border:'1px solid '+border,padding:'14px 16px',marginBottom:12}}>
+          <div style={{fontSize:15,fontWeight:600,color:textPrimary,marginBottom:4}}>Exporter les données</div>
+          <div style={{fontSize:12,color:textSecondary,marginBottom:12}}>Télécharge toutes tes prières en fichier Excel (.xlsx)</div>
+          <button onClick={()=>exportToExcel(logs)} style={{
+            width:'100%',padding:'12px',borderRadius:12,
+            background:COLORS.accomplie,border:'none',
+            color:'#fff',fontSize:14,fontWeight:700,
+          }}>📥 Exporter en Excel</button>
+        </div>
+
+        {/* Import Excel */}
+        <div style={{background:surface,borderRadius:16,border:'1px solid '+border,padding:'14px 16px',marginBottom:12}}>
+          <div style={{fontSize:15,fontWeight:600,color:textPrimary,marginBottom:4}}>Importer des données</div>
+          <div style={{fontSize:12,color:textSecondary,marginBottom:12}}>Restaure des données depuis un fichier Excel exporté</div>
+          <input ref={fileRef} type="file" accept=".xlsx,.xls" style={{display:'none'}} onChange={e=>{
+            const f=e.target.files?.[0];
+            if(!f)return;
+            importFromExcel(f,(newLogs)=>{
+              setLogs(newLogs);
+              saveLogs(newLogs);
+              setImportMsg('Import réussi ! '+Object.keys(newLogs).length+' jours importés.');
+              setTimeout(()=>setImportMsg(''),3000);
+            });
+            e.target.value='';
+          }}/>
+          <button onClick={()=>fileRef.current?.click()} style={{
+            width:'100%',padding:'12px',borderRadius:12,
+            background:COLORS.retardee,border:'none',
+            color:'#fff',fontSize:14,fontWeight:700,
+          }}>📤 Importer un fichier Excel</button>
+          {importMsg&&<div style={{marginTop:8,fontSize:12,color:COLORS.accomplie,fontWeight:600}}>{importMsg}</div>}
+        </div>
+
+        {/* Effacer tout */}
+        <div style={{background:surface,borderRadius:16,border:'1px solid #FCA5A5',padding:'14px 16px',marginBottom:12}}>
+          <div style={{fontSize:15,fontWeight:600,color:COLORS.manquee,marginBottom:4}}>Effacer toutes les données</div>
+          <div style={{fontSize:12,color:textSecondary,marginBottom:12}}>Cette action est irréversible. Une question de sécurité sera posée.</div>
+
+          {deleteStep===0&&(
+            <button onClick={handleDelete} style={{width:'100%',padding:'12px',borderRadius:12,background:COLORS.manquee,border:'none',color:'#fff',fontSize:14,fontWeight:700}}>
+              🗑️ Effacer toutes les données
+            </button>
+          )}
+
+          {(deleteStep===1||deleteStep===2)&&(
+            <div>
+              <div style={{fontSize:13,fontWeight:600,color:textPrimary,marginBottom:8}}>
+                🕌 Combien de versets contient la Sourate Al-Fatiha ?
+              </div>
+              <input
+                type="number" value={answer} onChange={e=>setAnswer(e.target.value)}
+                placeholder="Ta réponse..."
+                style={{width:'100%',padding:'10px 12px',borderRadius:10,border:'1px solid '+(deleteStep===2?COLORS.manquee:border),fontSize:15,color:textPrimary,background:settings.darkMode?'#1a1a3a':'#F5F5F4',marginBottom:8}}
+              />
+              {deleteStep===2&&<div style={{color:COLORS.manquee,fontSize:12,marginBottom:8,fontWeight:600}}>❌ Mauvaise réponse. Réessaie.</div>}
+              <div style={{display:'flex',gap:8}}>
+                <button onClick={()=>{setDeleteStep(0);setAnswer('');}} style={{flex:1,padding:'11px',borderRadius:10,background:COLORS.surfaceElevated,border:'none',color:textSecondary,fontSize:13,fontWeight:600}}>Annuler</button>
+                <button onClick={handleDelete} style={{flex:1,padding:'11px',borderRadius:10,background:COLORS.manquee,border:'none',color:'#fff',fontSize:13,fontWeight:700}}>Confirmer</button>
+              </div>
+            </div>
+          )}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+// ── MAIN APP ───────────────────────────────────────────────────────────────────
+function App(){
+  const [logs,setLogs]=React.useState(()=>loadLogs());
+  const [settings,setSettings]=React.useState(()=>loadSettings());
+  const [tab,setTab]=React.useState('aujourdhui');
+
+  // Apply dark mode to body
+  React.useEffect(()=>{
+    document.body.style.background=settings.darkMode?'#0d0d1f':'#FAFAF9';
+  },[settings.darkMode]);
+
+  const setLog=(dk,prayer,log)=>{
+    setLogs(prev=>{
+      const next={...prev};
+      if(!next[dk])next[dk]={};
+      if(log===null){delete next[dk][prayer];if(Object.keys(next[dk]).length===0)delete next[dk];}
+      else next[dk][prayer]=log;
+      saveLogs(next);
+      return next;
+    });
+  };
+
+  const TABS=[
+    {id:'aujourdhui', label:"Aujourd'hui", icon:'sun'},
+    {id:'semaine',    label:'Semaine',     icon:'grid'},
+    {id:'mois',       label:'Mois',        icon:'calendar'},
+    {id:'vendredi',   label:'Vendredi',    icon:'star'},
+    {id:'priere',     label:'Par prière',  icon:'bar-chart'},
+    {id:'parametres', label:'Réglages',    icon:'settings'},
+  ];
+
+  return(
+    <div style={{display:'flex',flexDirection:'column',height:'100dvh',background:settings.darkMode?'#0d0d1f':COLORS.bg,maxWidth:480,margin:'0 auto',position:'relative'}}>
+      <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+        {tab==='aujourdhui'&&<AujourdhuiScreen logs={logs} setLog={setLog}/>}
+        {tab==='semaine'   &&<SemaineScreen    logs={logs} setLog={setLog}/>}
+        {tab==='mois'      &&<MoisScreen       logs={logs}/>}
+        {tab==='vendredi'  &&<VendrediScreen   logs={logs} setLog={setLog}/>}
+        {tab==='priere'    &&<PriereScreen     logs={logs}/>}
+        {tab==='parametres'&&<ParametresScreen logs={logs} setLogs={setLogs} settings={settings} setSettings={setSettings}/>}
+      </div>
+
+      <div style={{display:'flex',borderTop:'1px solid '+(settings.darkMode?'#1e1e3a':'#F0EFEC'),background:settings.darkMode?'rgba(13,13,31,0.97)':'rgba(255,255,255,0.95)',paddingBottom:'env(safe-area-inset-bottom,8px)',flexShrink:0}}>
+        {TABS.map(t=>(
+          <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,padding:'8px 4px',background:'none',border:'none'}}>
+            <Icon name={t.icon} size={20} color={tab===t.id?(settings.darkMode?'#e0e0f0':COLORS.textPrimary):COLORS.textMuted}/>
+            <span style={{fontSize:9,color:tab===t.id?(settings.darkMode?'#e0e0f0':COLORS.textPrimary):COLORS.textMuted,fontWeight:tab===t.id?700:500,letterSpacing:0.2}}>{t.label}</span>
+            {tab===t.id&&<div style={{width:16,height:2,background:COLORS.gold,borderRadius:1}}/>}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+</script>
+</body>
+</html>
