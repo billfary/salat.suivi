@@ -531,7 +531,7 @@ function WeekCell({d,p,log,onPress}){
   const cellColor=log?(isFri&&isDh?getJoumuaColor(log):STATUS_COLOR[log.status]):'#EAE8E4';
   const border=isFri&&isDh?'2px solid '+JOUMUA_YELLOW:'none';
   return(
-    <button onClick={onPress} style={{flex:1,aspectRatio:'1',marginInline:3,borderRadius:8,background:cellColor,minHeight:36,display:'flex',alignItems:'center',justifyContent:'center',border:border,position:'relative'}}>
+    <button onClick={onPress} style={{flex:1,aspectRatio:'1',marginInline:3,borderRadius:8,background:cellColor,minHeight:30,display:'flex',alignItems:'center',justifyContent:'center',border:border,position:'relative'}}>
       {log&&<SubcategoryIcon subcategory={log.subcategory} size={18} color="#0c0a09"/>}
       {isFri&&isDh&&<span style={{position:'absolute',top:1,right:2,fontSize:6,color:'#0c0a09',opacity:0.7}}>★</span>}
     </button>
@@ -577,7 +577,7 @@ function SemaineScreen({logs,setLog}){
         </div>
 
         <div style={{background:COLORS.surface,padding:6,borderRadius:14,border:'1px solid #F0EFEC',marginBottom:8}}>
-          <div style={{display:'flex',marginBottom:10}}>
+          <div style={{display:'flex',marginBottom:6}}>
             <div style={{width:30}}/>
             {days.map((d,i)=>{
               const isToday=isSameDay(d,today);
@@ -590,7 +590,7 @@ function SemaineScreen({logs,setLog}){
             })}
           </div>
           {PRAYERS.map(p=>(
-            <div key={p} style={{display:'flex',alignItems:'center',marginBottom:6}}>
+            <div key={p} style={{display:'flex',alignItems:'center',marginBottom:2}}>
               <div style={{width:30,textAlign:'center',fontSize:20,color:COLORS.textPrimary,fontWeight:600,fontFamily:'Georgia,serif'}}>{PRAYER_INITIALS[p]}</div>
               {days.map((d,i)=>{
                 const log=logs[dateKey(d)]?.[p];
@@ -688,12 +688,12 @@ function PeriodSummaryCard({title,counts}){
     {c:COLORS.manquee,  v:counts.manquee,  p:pct(counts.manquee,  exp)},
   ];
   return(
-    <div style={{background:COLORS.surface,borderRadius:14,border:'1px solid #F0EFEC',padding:'8px 12px',marginBottom:6}}>
+    <div style={{background:COLORS.surface,borderRadius:12,border:'1px solid #F0EFEC',padding:'6px 10px',marginBottom:5}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
         <div style={{fontSize:13,fontWeight:700,color:COLORS.textPrimary}}>{title}</div>
         <div style={{fontSize:11,color:COLORS.textMuted}}>{counts.total} / {counts.expected} enregistrées</div>
       </div>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'space-around'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-around',gap:0}}>
         {stats.map((s,i)=>[
           i>0&&<div key={'d'+i} style={{width:1,height:32,background:'#EDEAE6'}}/>,
           <div key={i} style={{display:'flex',flexDirection:'column',alignItems:'center',flex:1}}>
@@ -846,16 +846,16 @@ function VendrediScreen({logs,setLog}){
               <div style={{display:'flex',alignItems:'center',marginBottom:4}}>
                 <div style={{width:36,flexShrink:0}}/>
                 {['V1','V2','V3','V4','V5'].map(n=>(
-                  <div key={n} style={{width:44,marginInline:2,flexShrink:0,textAlign:'center',fontSize:10,color:COLORS.textMuted,fontWeight:700}}>{n}</div>
+                  <div key={n} style={{width:40,marginInline:2,flexShrink:0,textAlign:'center',fontSize:10,color:COLORS.textMuted,fontWeight:700}}>{n}</div>
                 ))}
               </div>
               {FRENCH_MONTHS_CAP.map((monthName,mi)=>{
                 const fridays=getFridaysOfMonth(year,mi);
                 return(
-                  <div key={mi} style={{display:'flex',alignItems:'center',marginBottom:3}}>
+                  <div key={mi} style={{display:'flex',alignItems:'center',marginBottom:2}}>
                     <div style={{width:36,flexShrink:0,fontSize:10,color:COLORS.textSecondary,fontWeight:600}}>{monthName.slice(0,3)}</div>
                     {fridays.map((f,fi)=>{
-                      if(!f)return<div key={fi} style={{width:44,marginInline:2,flexShrink:0}}/>;
+                      if(!f)return<div key={fi} style={{width:40,marginInline:2,flexShrink:0}}/>;
                       const k=dateKey(f);
                       const log=logs[k]?.['Dhuhr'];
                       const isFuture=f>today;
@@ -864,7 +864,7 @@ function VendrediScreen({logs,setLog}){
                       const isToday=isSameDay(f,today);
                       return(
                         <button key={fi} onClick={()=>!isFuture&&setEditing({date:f,prayer:'Dhuhr'})} style={{
-                          width:44,height:44,flexShrink:0,marginInline:2,borderRadius:9,
+                          width:40,height:40,flexShrink:0,marginInline:2,borderRadius:8,
                           background:isFuture?'#F5F5F4':color,
                           border:isToday?'2px solid '+COLORS.gold:'1px solid transparent',
                           display:'flex',alignItems:'center',justifyContent:'center',
