@@ -488,16 +488,20 @@ function AujourdhuiScreen({logs,setLog}){
             const log=logs[curKey]?.[p];
             const isFri=isFriday(currentDate);
             const isDhuhr=p==='Dhuhr';
-            const color=log?(isFri&&isDhuhr?getJoumuaColor(log):STATUS_COLOR[log.status]):COLORS.gray;
-            const prayerLabel=isFri&&isDhuhr?"Joumou'a":p;
+            const isJoumua=isFri&&isDhuhr;
+            const color=log?(isJoumua?getJoumuaColor(log):STATUS_COLOR[log.status]):COLORS.gray;
             return(
-              <button key={p} onClick={()=>setEditing(p)} style={{background:COLORS.surface,padding:'14px 18px',borderRadius:20,border:`1px solid ${isFri&&isDhuhr?'#EAB30840':'#F0EFEC'}`,display:'flex',alignItems:'center',justifyContent:'space-between',minHeight:68,textAlign:'left',width:'100%'}}>
+              <button key={p} onClick={()=>setEditing(p)} style={{
+                background:COLORS.surface,padding:'14px 18px',borderRadius:20,
+                border:isJoumua?'3px solid '+COLORS.gold:'1px solid #F0EFEC',
+                display:'flex',alignItems:'center',justifyContent:'space-between',
+                minHeight:68,textAlign:'left',width:'100%',
+              }}>
                 <div style={{display:'flex',alignItems:'center',gap:14,flex:1}}>
                   <div style={{width:11,height:11,borderRadius:5.5,background:color,flexShrink:0}}/>
                   <div>
-                    <div style={{display:'flex',alignItems:'center',gap:6}}>
-                      <span style={{fontSize:20,fontWeight:600,color:COLORS.textPrimary,fontFamily:'Georgia,serif',letterSpacing:-0.3}}>{prayerLabel}</span>
-                      {isFri&&isDhuhr&&<span style={{fontSize:10,color:JOUMUA_YELLOW,fontWeight:700,letterSpacing:0.5}}>★</span>}
+                    <div style={{fontSize:20,fontWeight:600,color:isJoumua?COLORS.gold:COLORS.textPrimary,fontFamily:'Georgia,serif',letterSpacing:-0.3}}>
+                      {isJoumua?"Joumou'a":p}
                     </div>
                     <div style={{fontSize:13,color:COLORS.textSecondary,marginTop:2}}>{log?`${STATUS_LABEL[log.status]} • ${log.subcategory}`:'Non enregistrée'}</div>
                   </div>
@@ -510,12 +514,6 @@ function AujourdhuiScreen({logs,setLog}){
           })}
         </div>
 
-        {isFriday(currentDate)&&(
-          <div style={{marginTop:14,padding:'14px 18px',borderRadius:16,background:'#FFFBEB',border:'1px solid #FDE68A',textAlign:'center'}}>
-            <div style={{fontSize:18,color:JOUMUA_YELLOW,fontWeight:700,letterSpacing:0.5}}>جمعة مباركة</div>
-            <div style={{fontSize:14,color:'#92400E',fontWeight:600,marginTop:4}}>Joumou'a Moubarak</div>
-          </div>
-        )}
       </div>
 
       <StatusSheet visible={!!editing} prayer={editing} initial={editing?logs[curKey]?.[editing]:null}
@@ -564,8 +562,8 @@ function SemaineScreen({logs,setLog}){
   return(
     <div style={{flex:1,display:'flex',flexDirection:'column',height:'100%'}}>
       <StatsPanel counts={counts} label="Cette semaine"/>
-      <div style={{overflowY:'auto',padding:16,paddingBottom:30}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+      <div style={{overflowY:'auto',padding:'8px 12px 12px'}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
           <button onClick={()=>setWeekStart(addDays(weekStart,-7))} style={{width:40,height:40,borderRadius:20,background:COLORS.surface,border:'1px solid #F0EFEC',display:'flex',alignItems:'center',justifyContent:'center'}}>
             <Icon name="chevron-back" size={20} color={COLORS.textPrimary}/>
           </button>
@@ -578,7 +576,7 @@ function SemaineScreen({logs,setLog}){
           </button>
         </div>
 
-        <div style={{background:COLORS.surface,padding:10,borderRadius:18,border:'1px solid #F0EFEC',marginBottom:16}}>
+        <div style={{background:COLORS.surface,padding:6,borderRadius:14,border:'1px solid #F0EFEC',marginBottom:8}}>
           <div style={{display:'flex',marginBottom:10}}>
             <div style={{width:30}}/>
             {days.map((d,i)=>{
@@ -641,7 +639,7 @@ function MoisScreen({logs}){
     <div style={{flex:1,display:'flex',flexDirection:'column',height:'100%'}}>
       <StatsPanel counts={counts} label="Ce mois"/>
       <div style={{overflowY:'auto',padding:16,paddingBottom:30}}>
-        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
           <button onClick={()=>setCursor(new Date(cursor.getFullYear(),cursor.getMonth()-1,1))} style={{width:40,height:40,borderRadius:20,background:COLORS.surface,border:'1px solid #F0EFEC',display:'flex',alignItems:'center',justifyContent:'center'}}>
             <Icon name="chevron-back" size={20} color={COLORS.textPrimary}/>
           </button>
@@ -690,7 +688,7 @@ function PeriodSummaryCard({title,counts}){
     {c:COLORS.manquee,  v:counts.manquee,  p:pct(counts.manquee,  exp)},
   ];
   return(
-    <div style={{background:COLORS.surface,borderRadius:18,border:'1px solid #F0EFEC',padding:'12px 16px',marginBottom:12}}>
+    <div style={{background:COLORS.surface,borderRadius:14,border:'1px solid #F0EFEC',padding:'8px 12px',marginBottom:6}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
         <div style={{fontSize:13,fontWeight:700,color:COLORS.textPrimary}}>{title}</div>
         <div style={{fontSize:11,color:COLORS.textMuted}}>{counts.total} / {counts.expected} enregistrées</div>
@@ -846,18 +844,18 @@ function VendrediScreen({logs,setLog}){
             {/* Grille gauche */}
             <div style={{flex:1}}>
               <div style={{display:'flex',alignItems:'center',marginBottom:4}}>
-                <div style={{width:70,flexShrink:0}}/>
+                <div style={{width:36,flexShrink:0}}/>
                 {['V1','V2','V3','V4','V5'].map(n=>(
-                  <div key={n} style={{width:46,marginInline:2,flexShrink:0,textAlign:'center',fontSize:10,color:COLORS.textMuted,fontWeight:700}}>{n}</div>
+                  <div key={n} style={{width:44,marginInline:2,flexShrink:0,textAlign:'center',fontSize:10,color:COLORS.textMuted,fontWeight:700}}>{n}</div>
                 ))}
               </div>
               {FRENCH_MONTHS_CAP.map((monthName,mi)=>{
                 const fridays=getFridaysOfMonth(year,mi);
                 return(
                   <div key={mi} style={{display:'flex',alignItems:'center',marginBottom:3}}>
-                    <div style={{width:70,flexShrink:0,fontSize:11,color:COLORS.textSecondary,fontWeight:600}}>{monthName}</div>
+                    <div style={{width:36,flexShrink:0,fontSize:10,color:COLORS.textSecondary,fontWeight:600}}>{monthName.slice(0,3)}</div>
                     {fridays.map((f,fi)=>{
-                      if(!f)return<div key={fi} style={{width:46,marginInline:2,flexShrink:0}}/>;
+                      if(!f)return<div key={fi} style={{width:44,marginInline:2,flexShrink:0}}/>;
                       const k=dateKey(f);
                       const log=logs[k]?.['Dhuhr'];
                       const isFuture=f>today;
@@ -866,7 +864,7 @@ function VendrediScreen({logs,setLog}){
                       const isToday=isSameDay(f,today);
                       return(
                         <button key={fi} onClick={()=>!isFuture&&setEditing({date:f,prayer:'Dhuhr'})} style={{
-                          width:46,height:46,flexShrink:0,marginInline:2,borderRadius:10,
+                          width:44,height:44,flexShrink:0,marginInline:2,borderRadius:9,
                           background:isFuture?'#F5F5F4':color,
                           border:isToday?'2px solid '+COLORS.gold:'1px solid transparent',
                           display:'flex',alignItems:'center',justifyContent:'center',
