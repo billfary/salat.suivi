@@ -1122,7 +1122,7 @@ function App(){
         {tab==='parametres'&&<ParametresScreen logs={logs} setLogs={setLogs} settings={settings} setSettings={setSettings}/>}
       </div>
 
-      <div style={{display:'flex',borderTop:'1px solid '+(settings.darkMode?'#1e1e3a':'#F0EFEC'),background:settings.darkMode?'rgba(13,13,31,0.97)':'rgba(255,255,255,0.95)',paddingBottom:'env(safe-area-inset-bottom,8px)',flexShrink:0}}>
+      <div style={{display:'flex',borderTop:'1px solid '+(settings.darkMode?'#1e1e3a':'#F0EFEC'),background:settings.darkMode?'rgba(13,13,31,0.97)':'rgba(255,255,255,0.95)',paddingBottom:'env(safe-area-inset-bottom,2px)',flexShrink:0}}>
         {TABS.map(t=>(
           <button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:2,padding:'8px 4px',background:'none',border:'none'}}>
             <Icon name={t.icon} size={20} color={tab===t.id?(settings.darkMode?'#e0e0f0':COLORS.textPrimary):COLORS.textMuted}/>
